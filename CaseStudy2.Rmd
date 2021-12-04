@@ -1,0 +1,202 @@
+---
+title: "CaseStudy2DDS"
+author: "Shijo Joseph"
+date: "11/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Frito Lay HR Attrition
+
+## Executive Summary
+The purpose of this review is to provide the HR team an understanding of the attrition at the company and to create a model in which to target which type of employees may turn over. We will also be discussing how to calculate a salary for an employee. In the end, we will hand you some recommendations to identify and reduce attrition.
+
+
+
+```{r library loads, echo = FALSE}
+
+#load different libraries and function to enable us to complete this analysis
+library(readr)
+library(tidyr) #enables piping
+library(dplyr)#enables enhancement to cleanse data
+library(ggplot2)
+library(caret) #enables classification and regression training
+library(e1071)
+library(class)
+library(stringr)
+library(e1071)
+library(GGally)
+library(tidyverse)
+
+
+```
+
+```{r loadfile, echo = FALSE}
+case2df =  read_csv("https://raw.githubusercontent.com/sajoseph-smu/CaseStudy2DDS/main/CaseStudy2-data.csv", show_col_types = FALSE) 
+
+## Clean up and creating factors for dataset
+case2df = na.omit(case2df)
+case2df$Over18 = as.factor(case2df$Over18)
+case2df$Gender = as.factor(case2df$Gender)
+case2df$Attrition = as.factor(case2df$Attrition)
+
+case2df$lPercentSalaryHike = log(case2df$PercentSalaryHike)
+
+
+## Calc out the salary and also the log of the salary
+
+case2df$Salary = case2df$MonthlyIncome*12
+case2df$lSalary = log(case2df$Salary)
+
+
+```
+
+#Find leading factors for attrition
+
+``` {r Find Variables}
+
+# based on the data set we will look at different plots to see which variables are related to attrition.
+
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age, YearsAtCompany, BusinessTravel) %>% ggpairs()
+
+
+# from these graphs we can see some relationship with the attrition
+
+case2df %>% ggplot(mapping = aes(x = Attrition)) + geom_bar(aes(y = (..count..)/sum(..count..),fill = Attrition))   +  geom_text(aes( label = scales::percent((..count..)/sum(..count..)), y= (..count..)/sum(..count..) ), stat= "count", vjust = -.5) + ggtitle("Total Attrition")+ scale_y_continuous(labels = scales::percent) + ylab("Percent of Total")
+
+
+# those with more overtime causes more attrition than those without overtime
+
+case2df %>% select(Attrition, OverTime) %>% ggplot(mapping = aes(x = OverTime)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by Overtime") + scale_y_continuous(labels = scales::percent)
+
+
+
+
+# based of this chart we can see that attrition occurs with people who have either been in their role for a long time or those who have not been in the role for many years
+case2df %>% select(Attrition, YearsInCurrentRole) %>% ggplot(mapping = aes(x = YearsInCurrentRole)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by YearsInCurrentRole") + scale_y_continuous(labels = scales::percent)
+
+
+# continuing the investigation we notice that the 15 year attrition is at higher job levels which means that they are executive class employees.
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel) %>% filter(YearsInCurrentRole == 15 ) %>% ggplot(mapping = aes(x = JobLevel)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by JobLevel") + scale_y_continuous(labels = scales::percent)
+
+
+# We now look at the age of the group to see if it is mostly Retirement
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age) %>% filter(YearsInCurrentRole == 15 & JobLevel > 3 ) %>% ggplot(mapping = aes(x = Age)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by Age") + scale_y_continuous(labels = scales::percent)
+
+
+
+case2df_noretirement = case2df %>%  filter( !(YearsInCurrentRole == 15 & JobLevel > 3 & Attrition == 'Yes') )
+
+
+# employees that are of age 30 or less in there first year in currentrole have a high attrition rate
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age) %>% filter(Age < 30 ) %>% ggplot(mapping = aes(x = YearsInCurrentRole)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by YearsInCurrentRole") + scale_y_continuous(labels = scales::percent)
+
+# employees with entry level jobs have high attrition rates.
+
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age, ) %>% filter(Age < 30 & YearsInCurrentRole == 0 ) %>% ggplot(mapping = aes(x = JobLevel)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by JobLevel") + scale_y_continuous(labels = scales::percent)
+
+
+#New Employees seem to have a higher attrition
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age, YearsAtCompany) %>% filter(Age < 30 & YearsInCurrentRole == 0 & JobLevel == 1) %>% ggplot(mapping = aes(x = YearsAtCompany)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by YearsAtCompany") + scale_y_continuous(labels = scales::percent)
+
+
+#New employees that have to travel seem to have the highest attrition 
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age, YearsAtCompany, BusinessTravel) %>% filter(Age < 30 & YearsInCurrentRole == 0 & YearsAtCompany < 3 & JobLevel == 1) %>% ggplot(mapping = aes(x = BusinessTravel)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by BusinessTravel") + scale_y_continuous(labels = scales::percent)
+
+
+
+# We also notice Those with more experience that are new to a position seem to have lower attrition
+
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age, YearsAtCompany, TotalWorkingYears) %>% filter( YearsInCurrentRole == 0 & JobLevel == 1) %>% ggplot(mapping = aes(x = TotalWorkingYears)) + geom_bar(aes(fill = Attrition),position = "fill") + ylab("Percent of Total")+ ggtitle("% Attrition by TotalWorkingYears") + scale_y_continuous(labels = scales::percent)
+
+
+```
+
+
+## EDA on Attrition
+
+```{r EDA}
+
+# a bubble chart looking a new entry level employees
+
+case2df %>% select(Attrition, YearsInCurrentRole, JobLevel, Age, YearsAtCompany, MonthlyIncome, DistanceFromHome, OverTime, Education, JobInvolvement, TotalWorkingYears, Department, BusinessTravel) %>% filter(  YearsInCurrentRole == 0 & YearsAtCompany < 3 & JobLevel == 1) %>% ggplot(mapping = aes(x = MonthlyIncome, y = DistanceFromHome, color = BusinessTravel, size = OverTime)) +geom_point() + ylab("Distance from Home")+ ggtitle("Attrition by Income and Distance from Home") + facet_wrap(~ Attrition + Department) 
+
+
+
+
+
+
+# as you can see most of the employees are new with little or no experience in the entry level positions. These employees are either too close to the company or are very far away. The R&D Department seems to have the most attrition with the Sales Department.  Another factor is due to the Overtime as those without overtime seem to have a lower attrition rate.
+
+
+
+
+
+```
+
+
+Note that the `OverTime, Department, BusinessTravel` were major factors that lead to attrition. These plus the other attributes found above will be used to create our attrition model
+
+
+## Create the attrition model
+
+We will build the model that will be used to classify attrition based on different explanatory variables. 
+
+```{r Find_Attrition}
+
+# First we build based on the variables collected from the eda.
+
+set.seed(1)
+
+splitPerc = .7 #Training / Test split Percentage
+trainIndices = sample(1:dim(case2df_noretirement)[1],round(splitPerc * dim(case2df)[1]))
+train = case2df_noretirement[trainIndices,]
+test = case2df_noretirement[-trainIndices,]
+trainIndices = sample(1:dim(case2df)[1],round(splitPerc * dim(case2df)[1]))
+train = case2df[trainIndices,]
+test = case2df[-trainIndices,]
+modelnB = naiveBayes(train[,c( "MonthlyIncome","YearsInCurrentRole", "JobLevel", "Age", "YearsAtCompany", "BusinessTravel", "DistanceFromHome",  "TotalWorkingYears", "NumCompaniesWorked","OverTime", "Department")],train$Attrition)
+CM = confusionMatrix(table(predict(modelnB,test[,c("MonthlyIncome","YearsInCurrentRole", "JobLevel", "Age", "YearsAtCompany", "BusinessTravel" , "DistanceFromHome" ,  "TotalWorkingYears", "NumCompaniesWorked", "OverTime", "Department")]),test$Attrition))
+CM
+
+
+
+```
+
+
+
+## We will build a salary model
+Using linear regression we will come up with a methodology to build a linear model so we can predict salaries employees.
+
+```{r LinearRegression}
+
+
+## look for correlation between monthly income and other variables
+
+
+case2df %>% select(MonthlyIncome, YearsAtCompany, JobLevel, TotalWorkingYears, YearsInCurrentRole , YearsSinceLastPromotion, YearsWithCurrManager) %>% ggpairs()
+
+train(MonthlyIncome ~ JobLevel + TotalWorkingYears, method = "lm", data = case2df, trControl = trainControl(method = "LOOCV"))
+
+fit = lm(MonthlyIncome ~ JobLevel + TotalWorkingYears , data = case2df)
+anova(fit)
+summary(fit)
+
+
+# The model for the monltly income is below :
+
+#  MonthlyIncome = -1798.38 + 3714.12*JobLevel + 55.66*TotalWorkingYears
+
+## This model has an RSME of 1383 and an R2 of 90.88% which means that it accounts for 90% of the Monthly income is explained by the Joblevel and TotalWorkingYears variables.
+
+
+```
+## Recomendations:
+
+#### 1) Reduce the number of travels for entry level employees as it might cause them to burn out and leave.
+#### 2) Reducing overtime for entry level employees can help in reducing attrition
+#### 3) Hiring canidates with more TotalWorkingYears in the related role will help in reducing attrition.
+
